@@ -1,3 +1,16 @@
+/*
+ * This file is part of a proprietary work.
+ *
+ * Copyright (c) 2025-2026 Fossorial, Inc.
+ * All rights reserved.
+ *
+ * This file is licensed under the Fossorial Commercial License.
+ * You may not use this file except in compliance with the License.
+ * Unauthorized use, copying, modification, or distribution is strictly prohibited.
+ *
+ * This file is not licensed under the AGPLv3.
+ */
+
 // Provider-neutral shapes used by the directory sync engine (runSync.ts).
 // Each provider (Azure, Google, ...) turns its API into these.
 
@@ -43,10 +56,10 @@ export type DirectoryFetchContext = {
     /** Opaque provider state from the previous successful run. Null = full fetch. */
     cursor: string | null;
     /** Called once per HTTP request, for the run report. */
-    onRequest: () => void;
+    // onRequest: () => void;
 };
 
-export interface DirectoryProvider {
+export interface DirectorySyncProvider {
     fetch(ctx: DirectoryFetchContext): Promise<DirectoryFetchResult>;
 }
 

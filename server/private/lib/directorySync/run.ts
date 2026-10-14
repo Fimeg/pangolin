@@ -1,6 +1,6 @@
-// Usage: npx tsx server/private/lib/directorySync/run.ts <idpId>
-// Runs one directory sync for the IdP using its saved directory role mapping.
-import { runDirectorySync } from "./runSync";
+// // Usage: npx tsx server/private/lib/directorySync/run.ts <idpId>
+// // Runs one directory sync for the IdP using its saved directory role mapping.
+import { AzureDirectorySyncProvider } from "./azure";
 
 const idpId = Number(process.argv[2]);
 if (!idpId) {
@@ -8,12 +8,29 @@ if (!idpId) {
     process.exit(1);
 }
 
-runDirectorySync(idpId)
+const provider = new AzureDirectorySyncProvider();
+
+provider
+    .fetch({
+        idpId: idpId,
+        identifierPath: "email",
+        cursor: null
+    })
     .then((report) => {
-        console.log(JSON.stringify(report, null, 2));
+        console.dir({ report }, { depth: null });
         process.exit(0);
     })
     .catch((err) => {
         console.error(err);
         process.exit(1);
     });
+
+// runDirectorySync(idpId)
+//     .then((report) => {
+//         console.log(JSON.stringify(report, null, 2));
+//         process.exit(0);
+//     })
+//     .catch((err) => {
+//         console.error(err);
+//         process.exit(1);
+//     });
