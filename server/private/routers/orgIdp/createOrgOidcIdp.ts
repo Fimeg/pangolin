@@ -46,6 +46,8 @@ const bodySchema = z.strictObject({
     variant: z.enum(["oidc", "google", "azure"]).optional().default("oidc"),
     roleMapping: z.string().optional(),
     orgMapping: z.string().nullish(),
+    directoryRoleMapping: z.string().nullish(),
+    directorySyncDeletions: z.boolean().optional(),
     tags: z.string().optional()
 });
 
@@ -124,6 +126,8 @@ export async function createOrgOidcIdp(
             roleMapping,
             orgMapping: orgMappingBody,
             directorySyncEnabled,
+            directoryRoleMapping,
+            directorySyncDeletions,
             tags
         } = parsedBody.data;
 
@@ -189,7 +193,9 @@ export async function createOrgOidcIdp(
                 idpId: idpRes.idpId,
                 orgId: orgId,
                 roleMapping: roleMapping || null,
-                orgMapping: orgMappingBody
+                orgMapping: orgMappingBody,
+                directoryRoleMapping: directoryRoleMapping || null,
+                directorySyncDeletions: directorySyncDeletions ?? true
             });
         });
 

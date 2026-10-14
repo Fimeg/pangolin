@@ -1,6 +1,7 @@
 "use client";
 
 import AutoProvisionConfigWidget from "@app/components/AutoProvisionConfigWidget";
+import DirectorySyncConfigWidget from "@app/components/DirectorySyncConfigWidget";
 import IdpAutoProvisionUsersDescription from "@app/components/IdpAutoProvisionUsersDescription";
 import { PaidFeaturesAlert } from "@app/components/PaidFeaturesAlert";
 import {
@@ -14,7 +15,6 @@ import {
     SettingsSectionTitle
 } from "@app/components/Settings";
 import HeaderTitle from "@app/components/SettingsSectionTitle";
-import { SwitchInput } from "@app/components/SwitchInput";
 import { OidcIdpProviderTypeSelect } from "@app/components/idp/OidcIdpProviderTypeSelect";
 import { Alert, AlertDescription, AlertTitle } from "@app/components/ui/alert";
 import { Button } from "@app/components/ui/button";
@@ -49,6 +49,11 @@ import {
     MappingBuilderRule,
     RoleMappingMode
 } from "@app/lib/idpRoleMapping";
+import {
+    createDefaultDirectorySyncRoleMappingConfig,
+    DirectorySyncRoleMappingConfig,
+    serializeDirectorySyncRoleMapping
+} from "@app/lib/idpDirectorySyncRoleMapping";
 
 export default function Page() {
     const { env } = useEnvContext();
@@ -65,6 +70,10 @@ export default function Page() {
         MappingBuilderRule[]
     >([createMappingBuilderRule()]);
     const [rawRoleExpression, setRawRoleExpression] = useState("");
+    const [directoryRoleMapping, setDirectoryRoleMapping] =
+        useState<DirectorySyncRoleMappingConfig>(
+            createDefaultDirectorySyncRoleMappingConfig
+        );
     const t = useTranslations();
     const { isPaidUser } = usePaidStatus();
 
@@ -94,7 +103,8 @@ export default function Page() {
         roleMapping: z.string().nullable().optional(),
         roleId: z.number().nullable().optional(),
         orgMapping: z.string().optional(),
-        directorySyncEnabled: z.boolean().default(false)
+        directorySyncEnabled: z.boolean().default(false),
+        directorySyncDeletions: z.boolean().default(true)
     });
 
     type CreateIdpFormValues = z.infer<typeof createIdpFormSchema>;
@@ -117,7 +127,8 @@ export default function Page() {
             roleMapping: null,
             roleId: null,
             orgMapping: "",
-            directorySyncEnabled: false
+            directorySyncEnabled: false,
+            directorySyncDeletions: true
         }
     });
 
@@ -125,9 +136,9 @@ export default function Page() {
     useEffect(() => {
         async function fetchRoles() {
             const res = await api
-                .get<
-                    AxiosResponse<ListRolesResponse>
-                >(`/org/${params.orgId}/roles`)
+                .get<AxiosResponse<ListRolesResponse>>(
+                    `/org/${params.orgId}/roles`
+                )
                 .catch((e) => {
                     console.error(e);
                     toast({
@@ -195,6 +206,9 @@ export default function Page() {
                 directorySyncEnabled:
                     (data.type === "google" || data.type === "azure") &&
                     data.directorySyncEnabled,
+                directoryRoleMapping:
+                    serializeDirectorySyncRoleMapping(directoryRoleMapping),
+                directorySyncDeletions: data.directorySyncDeletions,
                 roleMapping: roleMappingExpression,
                 scopes: data.scopes,
                 variant: data.type
@@ -377,32 +391,72 @@ export default function Page() {
                                             name: "orgMapping"
                                         }}
                                     />
-                                    {(form.watch("type") === "google" ||
-                                        form.watch("type") === "azure") && (
-                                        <SwitchInput
-                                            id="directory-sync-toggle"
-                                            label={t("idpDirectorySync")}
-                                            checked={form.watch(
-                                                "directorySyncEnabled"
-                                            )}
-                                            onCheckedChange={(checked) => {
+                                </form>
+                            </Form>
+                        </SettingsSectionBody>
+                    </SettingsSection>
+
+                    {/* Directory Sync Settings */}
+                    {(form.watch("type") === "google" ||
+                        form.watch("type") === "azure") && (
+                        <SettingsSection>
+                            <SettingsSectionHeader>
+                                <SettingsSectionTitle>
+                                    {t("idpDirectorySync")}
+                                </SettingsSectionTitle>
+                                <SettingsSectionDescription>
+                                    {t("idpDirectorySyncDescription")}
+                                </SettingsSectionDescription>
+                            </SettingsSectionHeader>
+                            <SettingsSectionBody>
+                                <Form {...form}>
+                                    <form
+                                        className="space-y-4"
+                                        id="create-idp-form"
+                                        onSubmit={form.handleSubmit(onSubmit)}
+                                    >
+                                        <DirectorySyncConfigWidget
+                                            directorySyncEnabled={
+                                                form.watch(
+                                                    "directorySyncEnabled"
+                                                ) ?? false
+                                            }
+                                            onDirectorySyncEnabledChange={(
+                                                checked
+                                            ) => {
                                                 form.setValue(
                                                     "directorySyncEnabled",
                                                     checked
                                                 );
                                                 if (checked) {
-                                                    form.setValue("autoProvision", false);
+                                                    form.setValue(
+                                                        "autoProvision",
+                                                        false
+                                                    );
                                                 }
                                             }}
-                                            description={t(
-                                                "idpDirectorySyncDescription"
-                                            )}
+                                            orgId={params.orgId as string}
+                                            roleMapping={directoryRoleMapping}
+                                            onRoleMappingChange={
+                                                setDirectoryRoleMapping
+                                            }
+                                            syncDeletions={
+                                                form.watch(
+                                                    "directorySyncDeletions"
+                                                ) ?? true
+                                            }
+                                            onSyncDeletionsChange={(checked) =>
+                                                form.setValue(
+                                                    "directorySyncDeletions",
+                                                    checked
+                                                )
+                                            }
                                         />
-                                    )}
-                                </form>
-                            </Form>
-                        </SettingsSectionBody>
-                    </SettingsSection>
+                                    </form>
+                                </Form>
+                            </SettingsSectionBody>
+                        </SettingsSection>
+                    )}
 
                     {form.watch("type") === "google" && (
                         <SettingsSection>
