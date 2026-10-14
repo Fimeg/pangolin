@@ -1339,6 +1339,35 @@ export const idpOrg = pgTable("idpOrg", {
         .default(true)
 });
 
+// Runtime state of the directory sync job, one row per IdP. Deleting the row
+// forces a full sync on the next run.
+export const idpSyncState = pgTable("idpSyncState", {
+    idpId: integer("idpId")
+        .primaryKey()
+        .references(() => idp.idpId, { onDelete: "cascade" }),
+    // Provider-defined opaque JSON (e.g. Azure delta links). Null = full sync.
+    cursor: text("cursor"),
+    lastSyncStartedAt: bigint("lastSyncStartedAt", { mode: "number" }),
+    lastSyncSucceededAt: bigint("lastSyncSucceededAt", { mode: "number" }),
+    lastError: text("lastError"),
+    consecutiveFailures: integer("consecutiveFailures").notNull().default(0)
+});
+
+// Links a directory user (stable provider ID) to the Pangolin user sync manages.
+export const idpSyncUser = pgTable(
+    "idpSyncUser",
+    {
+        idpId: integer("idpId")
+            .notNull()
+            .references(() => idp.idpId, { onDelete: "cascade" }),
+        externalId: varchar("externalId").notNull(),
+        userId: varchar("userId")
+            .notNull()
+            .references(() => users.userId, { onDelete: "cascade" })
+    },
+    (t) => [primaryKey({ columns: [t.idpId, t.externalId] })]
+);
+
 export const clients = pgTable(
     "clients",
     {
