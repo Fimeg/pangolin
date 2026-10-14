@@ -1,0 +1,54 @@
+// Provider-neutral shapes used by the directory sync engine (runSync.ts).
+// Each provider (Azure, Google, ...) turns its API into these.
+
+export type DirectoryGroup = {
+    /** Stable provider group ID. */
+    id: string;
+    displayName: string | null;
+};
+
+export type DirectoryUser = {
+    /** Stable provider user ID (Entra object ID, Google directory ID). */
+    externalId: string;
+    /** Value that login computes as `users.username` (already resolved from `identifierPath`). */
+    username: string | null;
+    email: string | null;
+    name: string | null;
+    /** False when the account is disabled or suspended in the directory. */
+    enabled: boolean;
+    /** Every group the user belongs to, nested memberships included. */
+    groups: DirectoryGroup[];
+};
+
+export type DirectoryFetchResult =
+    | {
+          /** Every user in the directory. Users sync knows about that are missing were deleted. */
+          kind: "full";
+          users: DirectoryUser[];
+          nextCursor: string | null;
+      }
+    | {
+          /** Only users that changed since the cursor, with their full current state. */
+          kind: "incremental";
+          users: DirectoryUser[];
+          /** External IDs of users deleted from the directory. */
+          removedExternalIds: string[];
+          nextCursor: string | null;
+      };
+
+export type DirectoryFetchContext = {
+    idpId: number;
+    /** `idpOidcConfig.identifierPath`, used to compute `DirectoryUser.username`. */
+    identifierPath: string;
+    /** Opaque provider state from the previous successful run. Null = full fetch. */
+    cursor: string | null;
+    /** Called once per HTTP request, for the run report. */
+    onRequest: () => void;
+};
+
+export interface DirectoryProvider {
+    fetch(ctx: DirectoryFetchContext): Promise<DirectoryFetchResult>;
+}
+
+/** Thrown by a provider when the stored cursor can't be used anymore; the engine retries with a full fetch. */
+export class DirectoryCursorExpiredError extends Error {}

@@ -1,18 +1,14 @@
-// Usage: npx tsx server/private/lib/directorySync/run.ts <idpId> <mappings.json>
-// mappings.json: [{ "groupId": "<entra group oid>", "orgId": "acme", "roleName": "Member" }]
-import { readFileSync } from "fs";
-import { GroupMapping, syncAzureDirectory } from "./azure";
+// Usage: npx tsx server/private/lib/directorySync/run.ts <idpId>
+// Runs one directory sync for the IdP using its saved directory role mapping.
+import { runDirectorySync } from "./runSync";
 
 const idpId = Number(process.argv[2]);
-const mappingsPath = process.argv[3];
-if (!idpId || !mappingsPath) {
-    console.error("Usage: run.ts <idpId> <mappings.json>");
+if (!idpId) {
+    console.error("Usage: run.ts <idpId>");
     process.exit(1);
 }
 
-const mappings: GroupMapping[] = JSON.parse(readFileSync(mappingsPath, "utf8"));
-
-syncAzureDirectory(idpId, mappings)
+runDirectorySync(idpId)
     .then((report) => {
         console.log(JSON.stringify(report, null, 2));
         process.exit(0);
