@@ -61,6 +61,7 @@ async function ensureValidIdp(idpId: number) {
     return idpRes;
 }
 
+type IdpDbResponse = Awaited<ReturnType<typeof ensureValidIdp>>;
 export class AzureDirectorySyncProvider implements DirectorySyncProvider {
     #TOKEN_CACHE_KEY_PREFIX = "azureDirectorySyncToken";
     #microsoftGraphBaseUrl = "https://graph.microsoft.com/v1.0";
@@ -77,7 +78,11 @@ export class AzureDirectorySyncProvider implements DirectorySyncProvider {
         );
 
         if (directorySyncMapping.mode === "fixedRoles") {
-            // ..
+            const users = await this.#fetchAllUsers(token, idpRes);
+
+            logger.info({
+                users
+            });
         }
 
         // if fixed roles
@@ -86,10 +91,6 @@ export class AzureDirectorySyncProvider implements DirectorySyncProvider {
         //   2. get list of all groups
         //   3. get group members ?
 
-        console.dir({
-            token
-        });
-
         return {
             kind: "full",
             users: [],
@@ -97,9 +98,7 @@ export class AzureDirectorySyncProvider implements DirectorySyncProvider {
         };
     }
 
-    async #getToken(
-        idpRes: Awaited<ReturnType<typeof ensureValidIdp>>
-    ): Promise<string> {
+    async #getToken(idpRes: IdpDbResponse): Promise<string> {
         const cacheKey = `${this.#TOKEN_CACHE_KEY_PREFIX}:${idpRes.idp.idpId}`;
         const cached = await cache.get<string>(cacheKey);
 
@@ -170,7 +169,7 @@ export class AzureDirectorySyncProvider implements DirectorySyncProvider {
         }
     }
 
-    async #fetchAllUsers(token: string) {
+    async #fetchAllUsers(token: string, idpRes: IdpDbResponse) {
         //...
         const userSelectQuery =
             "id,displayName,mail,userPrincipalName,accountEnabled";
@@ -199,17 +198,17 @@ export class AzureDirectorySyncProvider implements DirectorySyncProvider {
         const userBodySchema = z.object({
             value: z.array(
                 z.object({
-                    mail: z.email(),
-                    userPrincipalName: z.string(),
-                    id: z.uuidv4()
+                    id: z.uuid(),
+                    displayName: z.string(),
+                    mail: z.email().optional(),
+                    accountEnabled: z.boolean(),
+                    userPrincipalName: z.string()
                 })
             )
         });
 
         try {
-            const tokenResponse = userBodySchema.parse(body);
-
-            return tokenResponse;
+            return userBodySchema.parse(body);
         } catch (e) {
             throw new Error(
                 `Directory sync: `, // todo: improve
