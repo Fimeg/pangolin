@@ -16,20 +16,40 @@ import {
     idpOidcConfig,
     idpOrg,
     idpSyncUser,
+    orgs,
+    roleActions,
+    roles,
+    userOrgRoles,
+    userOrgs,
     users,
     type User
 } from "@server/db";
 
 import { durationToMs } from "@app/lib/durationToMs";
 import { and, eq, inArray, type InferInsertModel } from "drizzle-orm";
-import type { DirectorySyncProvider, DirectoryFetchContext } from "./types";
+import type {
+    DirectorySyncProvider,
+    DirectoryFetchContext,
+    DirectoryUser
+} from "./types";
 import { AzureDirectorySyncProvider } from "./azure";
-import { parseDirectorySyncRoleMapping } from "@app/lib/idpDirectorySyncRoleMapping";
-import { generateId } from "@cli/commands/setAdminCredentials";
+import {
+    parseDirectorySyncRoleMapping,
+    type DirectorySyncRoleMappingConfig
+} from "@app/lib/idpDirectorySyncRoleMapping";
+import { generateId } from "@server/auth/sessions/app";
 import { UserType } from "@server/types/UserTypes";
+import { assignUserToOrg, removeUserFromOrg } from "@server/lib/userOrg";
+import { calculateUserClientsForOrgs } from "@server/lib/calculateUserClientsForOrgs";
+import { usageService } from "@server/lib/billing/usageService";
+import { LimitId } from "@server/lib/billing";
+import { isLicensedOrSubscribed } from "#dynamic/lib/isLicencedOrSubscribed";
+import { tierMatrix } from "@server/lib/billing/tierMatrix";
+import { defaultRoleAllowedActions } from "@server/routers/role/createRole";
+import logger from "@server/logger";
 
 type InsertUser = InferInsertModel<typeof users>;
-type UpdateUser = Omit<InsertUser, "userId">;
+type UpdateUser = Pick<InsertUser, "username" | "email" | "name" | "userId">;
 
 // Track if the offline checker interval is running
 let directorySyncInterval: NodeJS.Timeout | null = null;
@@ -81,25 +101,47 @@ async function syncIdp(
         .from(users)
         .where(eq(users.idpId, ctx.idpId));
 
-    const usersToInsert: InsertUser[] = [];
-
-    for (const user of result.users) {
-        const userId = generateId(15);
-        usersToInsert.push({
-            userId,
-            username: user.username,
-            email: user.email,
-            name: user.name,
-            type: UserType.OIDC,
-            idpId: ctx.idpId,
-            emailVerified: true, // OIDC users are always verified
-            dateCreated: new Date().toISOString()
-        });
+    const map = new Map<string, (typeof existingUsers)[number]>();
+    for (const u of existingUsers) {
+        map.set(u.username, u);
     }
 
-    // 1st case: the users don't exist
+    const usersToInsert: InsertUser[] = [];
+    const usersToUpdate: UpdateUser[] = [];
+    const deletedUserIds: string[] = [];
+
+    for (const user of result.users) {
+        const existing = map.get(user.username);
+        if (existing) {
+            usersToUpdate.push({
+                username: user.username,
+                email: user.email,
+                name: user.name,
+                userId: existing.userId
+            });
+        } else {
+            const userId = generateId(15);
+            usersToInsert.push({
+                userId,
+                username: user.username,
+                email: user.email,
+                name: user.name,
+                type: UserType.OIDC,
+                idpId: ctx.idpId,
+                emailVerified: true, // OIDC users are always verified
+                dateCreated: new Date().toISOString()
+            });
+        }
+    }
+
     await db.transaction(async (trx) => {
-        trx.insert(users).values(usersToInsert);
+        await trx.insert(users).values(usersToInsert);
+
+        await Promise.all(
+            usersToUpdate.map((u) =>
+                trx.update(users).set(u).where(eq(users.userId, u.userId))
+            )
+        );
     });
 
     // ...
