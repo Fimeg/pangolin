@@ -33,21 +33,11 @@ export type DirectoryUser = {
     groups: DirectoryGroup[];
 };
 
-export type DirectoryFetchResult =
-    | {
-          /** Every user in the directory. Users sync knows about that are missing were deleted. */
-          kind: "full";
-          users: DirectoryUser[];
-          nextCursor: string | null;
-      }
-    | {
-          /** Only users that changed since the cursor, with their full current state. */
-          kind: "incremental";
-          users: DirectoryUser[];
-          /** External IDs of users deleted from the directory. */
-          removedExternalIds: string[];
-          nextCursor: string | null;
-      };
+export type DirectoryFetchResult = {
+    kind: "full";
+    users: DirectoryUser[];
+    nextCursor: string | null;
+};
 
 export type DirectoryFetchContext = {
     idpId: number;
@@ -55,8 +45,6 @@ export type DirectoryFetchContext = {
     identifierPath: string;
     /** Opaque provider state from the previous successful run. Null = full fetch. */
     cursor: string | null;
-    /** Called once per HTTP request, for the run report. */
-    // onRequest: () => void;
 };
 
 export interface DirectorySyncProvider {
