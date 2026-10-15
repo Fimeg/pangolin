@@ -11,6 +11,8 @@
  * This file is not licensed under the AGPLv3.
  */
 
+import type { DirectorySyncRoleMappingConfig } from "@app/lib/idpDirectorySyncRoleMapping";
+
 // Provider-neutral shapes used by the directory sync engine (runSync.ts).
 // Each provider (Azure, Google, ...) turns its API into these.
 
@@ -24,7 +26,7 @@ export type DirectoryUser = {
     /** Stable provider user ID (Entra object ID, Google directory ID). */
     externalId: string;
     /** Value that login computes as `users.username` (already resolved from `identifierPath`). */
-    username: string | null;
+    username: string;
     email: string | null;
     name: string | null;
     /** False when the account is disabled or suspended in the directory. */
@@ -34,17 +36,18 @@ export type DirectoryUser = {
 };
 
 export type DirectoryFetchResult = {
-    kind: "full";
     users: DirectoryUser[];
-    nextCursor: string | null;
+    // nextCursor: string | null;
 };
 
 export type DirectoryFetchContext = {
     idpId: number;
+    orgId: string;
+    roleMapping: DirectorySyncRoleMappingConfig;
     /** `idpOidcConfig.identifierPath`, used to compute `DirectoryUser.username`. */
     identifierPath: string;
     /** Opaque provider state from the previous successful run. Null = full fetch. */
-    cursor: string | null;
+    // cursor: string | null;
 };
 
 export interface DirectorySyncProvider {

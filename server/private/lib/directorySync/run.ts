@@ -4,6 +4,7 @@
 import { runIdpDirectorySync } from "./syncWorkflow";
 
 await runIdpDirectorySync();
+process.exit(0);
 
 // const idpId = Number(process.argv[2]);
 // if (!idpId) {

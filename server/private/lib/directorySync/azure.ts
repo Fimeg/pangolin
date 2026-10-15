@@ -223,9 +223,8 @@ export class AzureDirectorySyncProvider implements DirectorySyncProvider {
         }
 
         return {
-            kind: "full",
-            users: Object.values(directoryUsers),
-            nextCursor: null
+            users: Object.values(directoryUsers)
+            // nextCursor: null
         };
     }
 
@@ -393,6 +392,13 @@ export class AzureDirectorySyncProvider implements DirectorySyncProvider {
 
                 allGroups.push(...response.value);
                 nextUrl = response["@odata.nextLink"];
+
+                // Sometimes, microsoft graph will send empty pages with a `@odata.nextLink` even
+                // though they are the last page, in that case, we stop the loop because this shouldn't happen
+                // DO NOT ASK ME WHY THIS IS THE CASE, IDK ¯\_(ツ)_/¯
+                if (response.value.length === 0) {
+                    nextUrl = undefined;
+                }
                 deltaLink = response["@odata.deltaLink"] ?? null;
             } catch (e) {
                 console.dir(

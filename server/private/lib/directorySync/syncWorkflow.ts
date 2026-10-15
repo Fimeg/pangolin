@@ -10,12 +10,26 @@
  *
  * This file is not licensed under the AGPLv3.
  */
-import { db, idp, idpOidcConfig, idpOrg } from "@server/db";
+import {
+    db,
+    idp,
+    idpOidcConfig,
+    idpOrg,
+    idpSyncUser,
+    users,
+    type User
+} from "@server/db";
 
 import { durationToMs } from "@app/lib/durationToMs";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, type InferInsertModel } from "drizzle-orm";
 import type { DirectorySyncProvider, DirectoryFetchContext } from "./types";
 import { AzureDirectorySyncProvider } from "./azure";
+import { parseDirectorySyncRoleMapping } from "@app/lib/idpDirectorySyncRoleMapping";
+import { generateId } from "@cli/commands/setAdminCredentials";
+import { UserType } from "@server/types/UserTypes";
+
+type InsertUser = InferInsertModel<typeof users>;
+type UpdateUser = Omit<InsertUser, "userId">;
 
 // Track if the offline checker interval is running
 let directorySyncInterval: NodeJS.Timeout | null = null;
@@ -38,12 +52,15 @@ export async function runIdpDirectorySync() {
 
     const azureSyncProvider = new AzureDirectorySyncProvider();
     const fetchPromises = idpsToSync
-        .map(({ idp, idpOidcConfig }) => {
+        .map(({ idp, idpOidcConfig, idpOrg }) => {
             if (idpOidcConfig.variant === "azure") {
                 return syncIdp(azureSyncProvider, {
                     idpId: idp.idpId,
+                    orgId: idpOrg.orgId,
                     identifierPath: idpOidcConfig.identifierPath,
-                    cursor: null
+                    roleMapping: parseDirectorySyncRoleMapping(
+                        idpOrg.directoryRoleMapping
+                    )
                 });
             }
             return null;
@@ -59,10 +76,40 @@ async function syncIdp(
 ) {
     const result = await provider.fetch(ctx);
 
-    // ...
-    console.dir({
-        result
+    const existingUsers = await db
+        .select()
+        .from(users)
+        .where(eq(users.idpId, ctx.idpId));
+
+    const usersToInsert: InsertUser[] = [];
+
+    for (const user of result.users) {
+        const userId = generateId(15);
+        usersToInsert.push({
+            userId,
+            username: user.username,
+            email: user.email,
+            name: user.name,
+            type: UserType.OIDC,
+            idpId: ctx.idpId,
+            emailVerified: true, // OIDC users are always verified
+            dateCreated: new Date().toISOString()
+        });
+    }
+
+    // 1st case: the users don't exist
+    await db.transaction(async (trx) => {
+        trx.insert(users).values(usersToInsert);
     });
+
+    // ...
+    // console.dir(
+    //     {
+    //         result
+    //     },
+    //     { depth: null }
+    // );
+    // await db.select().from(idp)
 
     return result;
 }
