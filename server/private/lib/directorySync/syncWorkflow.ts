@@ -10,43 +10,15 @@
  *
  * This file is not licensed under the AGPLv3.
  */
-import {
-    db,
-    idp,
-    idpOidcConfig,
-    idpOrg,
-    idpSyncUser,
-    orgs,
-    roleActions,
-    roles,
-    userOrgRoles,
-    userOrgs,
-    users,
-    type User
-} from "@server/db";
+import { db, idp, idpOidcConfig, idpOrg, users } from "@server/db";
 
 import { durationToMs } from "@app/lib/durationToMs";
-import { and, eq, inArray, type InferInsertModel } from "drizzle-orm";
-import type {
-    DirectorySyncProvider,
-    DirectoryFetchContext,
-    DirectoryUser
-} from "./types";
-import { AzureDirectorySyncProvider } from "./azure";
-import {
-    parseDirectorySyncRoleMapping,
-    type DirectorySyncRoleMappingConfig
-} from "@app/lib/idpDirectorySyncRoleMapping";
+import { parseDirectorySyncRoleMapping } from "@app/lib/idpDirectorySyncRoleMapping";
 import { generateId } from "@server/auth/sessions/app";
 import { UserType } from "@server/types/UserTypes";
-import { assignUserToOrg, removeUserFromOrg } from "@server/lib/userOrg";
-import { calculateUserClientsForOrgs } from "@server/lib/calculateUserClientsForOrgs";
-import { usageService } from "@server/lib/billing/usageService";
-import { LimitId } from "@server/lib/billing";
-import { isLicensedOrSubscribed } from "#dynamic/lib/isLicencedOrSubscribed";
-import { tierMatrix } from "@server/lib/billing/tierMatrix";
-import { defaultRoleAllowedActions } from "@server/routers/role/createRole";
-import logger from "@server/logger";
+import { and, eq, inArray, type InferInsertModel } from "drizzle-orm";
+import { AzureDirectorySyncProvider } from "./azure";
+import type { DirectoryFetchContext, DirectorySyncProvider } from "./types";
 
 type InsertUser = InferInsertModel<typeof users>;
 type UpdateUser = Pick<InsertUser, "username" | "email" | "name" | "userId">;
@@ -94,6 +66,27 @@ async function syncIdp(
     provider: DirectorySyncProvider,
     ctx: DirectoryFetchContext
 ) {
+    // Note
+    // username is unique only within IDPs or within internal ?
+    // we can have two users with the same username, one in an IDP and another `internal`
+    // Which means: a user can have two accounts w/ the same username (email in azure for ex)
+    // and each account can have different roles within the same Org
+
+    // ...
+    // Later: we might need to change the `identifierPath` for azure/google idps to `sub` (for ex)
+    // which is an immutable external ID that survives username/email changes
+    // but first we need to check if that ID is the same returned by Entra/google workspace
+    // if it's not the same ID, we might kepp `idpSyncUser` otherwise, we may need to see how
+    // we can maybe get rid of that table (or just not need it anymore)
+
+    // ...
+    // For global idps, we will rely on org policies
+    // we will not store a default mapping for directory sync
+    // if the admin wants to add the synched IDP to an org, they can create an org policy
+    // & set the role mapping to `automatic` (for ex)
+    // for global idps, if there is not an org policy for a specific org, the user is not added to that org
+
+    // 1. Fetch
     const result = await provider.fetch(ctx);
 
     const existingUsers = await db
