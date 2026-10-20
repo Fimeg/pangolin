@@ -4,6 +4,7 @@ import { SettingsContainer } from "@app/components/Settings";
 import { internal } from "@app/lib/api";
 import { authCookieHeader } from "@app/lib/api/cookies";
 import { getCachedSubscription } from "@app/lib/api/getCachedSubscription";
+import { pullEnv } from "@app/lib/pullEnv";
 import { build } from "@server/build";
 import type { GetOrgTierResponse } from "@server/routers/billing/types";
 import {
@@ -27,9 +28,14 @@ export default async function AuthPage(props: AuthPageProps) {
         subscriptionStatus = subRes.data.data;
     } catch {}
 
+    const env = pullEnv();
+    const orgLoginPagesEnabled =
+        build === "saas" ||
+        (build === "enterprise" && env.app.identityProviderMode === "org");
+
     let loginPage: GetLoginPageResponse | null = null;
     try {
-        if (build === "saas") {
+        if (orgLoginPagesEnabled) {
             const res = await internal.get<AxiosResponse<GetLoginPageResponse>>(
                 `/org/${orgId}/login-page`,
                 await authCookieHeader()
@@ -52,7 +58,7 @@ export default async function AuthPage(props: AuthPageProps) {
 
     return (
         <SettingsContainer>
-            {build === "saas" && <AuthPageSettings loginPage={loginPage} />}
+            {orgLoginPagesEnabled && <AuthPageSettings loginPage={loginPage} />}
             <AuthPageBrandingForm orgId={orgId} branding={loginPageBranding} />
         </SettingsContainer>
     );
