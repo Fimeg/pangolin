@@ -3,12 +3,13 @@ import { useEnvContext } from "@app/hooks/useEnvContext";
 import { createApiClient } from "@app/lib/api";
 import { orgQueries } from "@app/lib/queries";
 import { useResourcePolicyContext } from "@app/providers/ResourcePolicyProvider";
+import { resourceModeSupportsMtls } from "@server/lib/mtlsModes";
 import { useQuery } from "@tanstack/react-query";
 import type { AxiosResponse } from "axios";
 import { useContext, useEffect, useState } from "react";
 
 // mTLS is set on the policy being edited, like the other auth methods. When
-// editing in the context of a resource it only applies to HTTP resources.
+// editing in the context of a resource it doesn't apply to TCP/UDP resources.
 export function usePolicyMtls() {
     const { policy, updatePolicy } = useResourcePolicyContext();
     const resourceContext = useContext(ResourceContext);
@@ -18,7 +19,7 @@ export function usePolicyMtls() {
 
     const supported =
         !env.flags.disableEnterpriseFeatures &&
-        (!resource || resource.mode === "http");
+        (!resource || resourceModeSupportsMtls(resource.mode));
 
     const { data: certificates = [], isLoading: isLoadingCertificates } =
         useQuery({

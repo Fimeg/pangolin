@@ -3,6 +3,7 @@ import { existsSync } from "node:fs";
 import { portRangeStringSchema } from "@server/lib/ip";
 import { MaintenanceSchema } from "#dynamic/lib/blueprints/MaintenanceSchema";
 import { MtlsSchema } from "#dynamic/lib/blueprints/MtlsSchema";
+import { resourceModeSupportsMtls } from "@server/lib/mtlsModes";
 import { isValidRegionId } from "@server/db/regions";
 import { isValidHttpMethodList } from "@server/lib/validators";
 import { wildcardSubdomainSchema } from "@server/lib/schemas";
@@ -350,9 +351,11 @@ export const PublicResourceSchema = z
         "load-balancing-strategy": z
             .enum(["wrr", "p2c", "hrw", "leasttime"])
             .optional(),
-        headers: z.array(HeaderSchema).optional(), // deprecated alias for requestHeaders
-        requestHeaders: z.array(HeaderSchema).optional(),
-        responseHeaders: z.array(HeaderSchema).optional(),
+        "request-headers": z.array(HeaderSchema).optional(),
+        "response-headers": z.array(HeaderSchema).optional(),
+        headers: z.array(HeaderSchema).optional(), // deprecated alias for request-headers
+        requestHeaders: z.array(HeaderSchema).optional(), // deprecated alias for request-headers
+        responseHeaders: z.array(HeaderSchema).optional(), // deprecated alias for response-headers
         rules: z.array(RuleSchema).optional(),
         maintenance: MaintenanceSchema.optional(),
         mtls: MtlsSchema.optional(), // deprecated alias for auth.mtls
@@ -479,11 +482,11 @@ export const PublicResourceSchema = z
                 return true;
             }
 
-            return (resource.mode ?? resource.protocol) === "http";
+            return resourceModeSupportsMtls(resource.mode ?? resource.protocol);
         },
         {
             path: ["auth", "mtls"],
-            error: "mTLS is only supported when mode is 'http'"
+            error: "mTLS is only supported when mode is 'http', 'ssh', 'rdp', 'vnc' or 'inference'"
         }
     )
     .refine(

@@ -21,7 +21,7 @@ const updateResourcePolicyBodySchema = z.strictObject({
         .boolean()
         .optional()
         .describe(
-            "Require clients to present a certificate signed by one of the policy's trusted CA certificates. Requires at least one CA certificate, and only takes effect on HTTP resources with SSL enabled."
+            "Require clients to present a certificate signed by one of the policy's trusted CA certificates. Requires at least one CA certificate, and only takes effect on resources with SSL enabled (not TCP/UDP)."
         )
 });
 

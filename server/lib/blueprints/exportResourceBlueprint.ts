@@ -444,14 +444,18 @@ export async function buildPublicResourceBlueprintConfig(
     }
     if (resource.requestHeaders) {
         try {
-            resourceConfig.requestHeaders = JSON.parse(resource.requestHeaders);
+            resourceConfig["request-headers"] = JSON.parse(
+                resource.requestHeaders
+            );
         } catch {
             // ignore malformed stored headers
         }
     }
     if (resource.responseHeaders) {
         try {
-            resourceConfig.responseHeaders = JSON.parse(resource.responseHeaders);
+            resourceConfig["response-headers"] = JSON.parse(
+                resource.responseHeaders
+            );
         } catch {
             // ignore malformed stored headers
         }

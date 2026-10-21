@@ -427,10 +427,10 @@ export function PolicyAuthStackSectionEdit({
                     .catch(handleError)
             );
             policyUpdates.emailWhitelistEnabled = payload.emailWhitelistEnabled;
+        }
 
-            if (canSaveMtls) {
-                requests.push(mtls.save().catch(handleError));
-            }
+        if (canSaveMtls) {
+            requests.push(mtls.save().catch(handleError));
         }
 
         try {
@@ -454,15 +454,22 @@ export function PolicyAuthStackSectionEdit({
 
                 updatePolicy(policyUpdates);
 
+                // Traefik only enforces mTLS with a trusted CA and SSL.
+                const mtlsEnforced =
+                    mtls.supported &&
+                    mtls.enabled &&
+                    mtls.hasCertificates &&
+                    mtls.sslEnabled;
                 resourceContext?.updateAuthInfo(
                     isInferenceResource
-                        ? { sso: true }
+                        ? { sso: true, mtls: mtlsEnforced }
                         : {
                               sso: payload.sso,
                               whitelist: payload.emailWhitelistEnabled,
                               password: passcodeOnServerRef.current,
                               pincode: pincodeOnServerRef.current,
-                              headerAuth: headerAuthOnServerRef.current
+                              headerAuth: headerAuthOnServerRef.current,
+                              mtls: mtlsEnforced
                           }
                 );
 
@@ -663,8 +670,9 @@ export function PolicyAuthStackSectionEdit({
                                 }
                             />
 
-                            {!isInferenceResource && (
+                            {(!isInferenceResource || mtls.supported) && (
                                 <PolicyAuthOtherMethodsSection
+                                    credentialMethods={!isInferenceResource}
                                     pinActive={pinActive}
                                     passcodeActive={passcodeActive}
                                     emailWhitelistEnabled={Boolean(
@@ -813,29 +821,30 @@ export function PolicyAuthStackSectionEdit({
                                         setHeaderAuthActive(true);
                                     }}
                                 />
-
-                                {mtls.supported && (
-                                    <PolicyMtlsCertificatesCredenza
-                                        open={editingMethod === "mtls"}
-                                        onOpenChange={(open) => {
-                                            if (open) return;
-                                            closeCredenza();
-                                            // mTLS can't be enabled without a trusted CA.
-                                            if (!mtls.hasCertificates) {
-                                                mtls.setEnabled(false);
-                                            }
-                                        }}
-                                        resourcePolicyId={
-                                            policy.resourcePolicyId
-                                        }
-                                        certificates={mtls.certificates}
-                                        isLoading={mtls.isLoadingCertificates}
-                                        onMtlsDisabled={() =>
-                                            updatePolicy({ mtlsEnabled: false })
-                                        }
-                                    />
-                                )}
                             </>
+                        )}
+
+                        {mtls.supported && (
+                            <PolicyMtlsCertificatesCredenza
+                                open={editingMethod === "mtls"}
+                                onOpenChange={(open) => {
+                                    if (open) return;
+                                    closeCredenza();
+                                    // mTLS can't be enabled without a trusted CA.
+                                    if (!mtls.hasCertificates) {
+                                        mtls.setEnabled(false);
+                                    }
+                                }}
+                                resourcePolicyId={policy.resourcePolicyId}
+                                certificates={mtls.certificates}
+                                isLoading={mtls.isLoadingCertificates}
+                                onMtlsDisabled={() => {
+                                    updatePolicy({ mtlsEnabled: false });
+                                    resourceContext?.updateAuthInfo({
+                                        mtls: false
+                                    });
+                                }}
+                            />
                         )}
                     </SettingsSectionBody>
                     <SettingsSectionFooter>

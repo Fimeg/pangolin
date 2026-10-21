@@ -267,18 +267,25 @@ export async function updatePublicResources(
             resourceData.ssl == undefined || resourceData.ssl == null
                 ? true
                 : resourceData.ssl;
-        // `headers` is a deprecated alias for `requestHeaders`
+        // `headers` and `requestHeaders` are deprecated aliases for
+        // `request-headers`; `responseHeaders` for `response-headers`
         const mergedRequestHeaders = [
             ...(resourceData.headers ?? []),
-            ...(resourceData.requestHeaders ?? [])
+            ...(resourceData.requestHeaders ?? []),
+            ...(resourceData["request-headers"] ?? [])
         ];
         const requestHeaders =
             mergedRequestHeaders.length > 0
                 ? JSON.stringify(mergedRequestHeaders)
                 : null;
-        const responseHeaders = resourceData.responseHeaders?.length
-            ? JSON.stringify(resourceData.responseHeaders)
-            : null;
+        const mergedResponseHeaders = [
+            ...(resourceData.responseHeaders ?? []),
+            ...(resourceData["response-headers"] ?? [])
+        ];
+        const responseHeaders =
+            mergedResponseHeaders.length > 0
+                ? JSON.stringify(mergedResponseHeaders)
+                : null;
 
         if (resourceData.policy) {
             const isLicensed = await isLicensedOrSubscribed(

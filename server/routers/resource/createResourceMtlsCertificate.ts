@@ -9,6 +9,7 @@ import logger from "@server/logger";
 import { fromError } from "zod-validation-error";
 import { OpenAPITags, registry } from "@server/openApi";
 import { addMtlsCertificates, getResourceMtlsOwner } from "@server/lib/mtls";
+import { resourceModeSupportsMtls } from "@server/lib/mtlsModes";
 import { CreateResourceMtlsCertificateResponse } from "@server/routers/resource/types";
 
 const createResourceMtlsCertificateParamsSchema = z.strictObject({
@@ -106,11 +107,11 @@ export async function createResourceMtlsCertificate(
             );
         }
 
-        if (resource.mode !== "http") {
+        if (!resourceModeSupportsMtls(resource.mode)) {
             return next(
                 createHttpError(
                     HttpCode.BAD_REQUEST,
-                    "mTLS is only supported on HTTP resources"
+                    "mTLS is not supported on TCP/UDP resources"
                 )
             );
         }

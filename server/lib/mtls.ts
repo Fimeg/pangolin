@@ -1,4 +1,5 @@
 import {
+    alias,
     db,
     resourceMtlsCertificates,
     resourcePolicies,
@@ -8,13 +9,23 @@ import {
     type Transaction
 } from "@server/db";
 import HttpCode from "@server/types/HttpCode";
-import { and, asc, count, eq, inArray } from "drizzle-orm";
+import {
+    and,
+    asc,
+    count,
+    eq,
+    inArray,
+    sql,
+    type AnyColumn,
+    type SQL
+} from "drizzle-orm";
 import createHttpError from "http-errors";
 import {
     MAX_MTLS_CERTIFICATES_PER_RESOURCE,
     parseCaCertificates,
     type ParsedCaCertificate
 } from "./mtlsCertificate";
+import { MTLS_RESOURCE_MODES } from "./mtlsModes";
 
 type DbOrTrx = Transaction | typeof db;
 
@@ -425,4 +436,64 @@ export async function syncMtlsCertificates(
 export async function clearMtls(owner: MtlsOwner, trx: DbOrTrx): Promise<void> {
     await setMtlsEnabled(owner, false, trx);
     await deleteCertificates(owner, undefined, trx);
+}
+
+type PolicyMtlsColumns = {
+    resourcePolicyId: AnyColumn;
+    mtlsEnabled: AnyColumn;
+};
+
+/**
+ * SQL boolean: whether Traefik enforces mTLS on the resource, mirroring
+ * getMtlsCaCertificatesByResource. The shared policy wins over the default
+ * (inline) policy; when that policy has mTLS off the resource-level setting
+ * applies; either way there must be a trusted CA, SSL and a mode served over
+ * HTTP(S). The policies are the caller's joins on resourcePolicyId and
+ * defaultResourcePolicyId.
+ */
+export function effectiveMtlsSql(
+    sharedPolicy: PolicyMtlsColumns,
+    defaultPolicy: PolicyMtlsColumns
+): SQL<boolean> {
+    return sql<boolean>`(CASE
+        WHEN NOT (${resources.ssl} AND ${inArray(resources.mode, [...MTLS_RESOURCE_MODES])}) THEN false
+        WHEN COALESCE(CASE
+            WHEN ${sharedPolicy.resourcePolicyId} IS NOT NULL THEN ${sharedPolicy.mtlsEnabled}
+            ELSE ${defaultPolicy.mtlsEnabled}
+        END, false) THEN EXISTS (
+            SELECT 1 FROM ${resourcePolicyMtlsCertificates}
+            WHERE ${resourcePolicyMtlsCertificates.resourcePolicyId} = COALESCE(${sharedPolicy.resourcePolicyId}, ${defaultPolicy.resourcePolicyId})
+        )
+        WHEN ${resources.mtlsEnabled} THEN EXISTS (
+            SELECT 1 FROM ${resourceMtlsCertificates}
+            WHERE ${resourceMtlsCertificates.resourceId} = ${resources.resourceId}
+        )
+        ELSE false
+    END)`;
+}
+
+/** Whether Traefik enforces mTLS on the resource; see effectiveMtlsSql. */
+export async function isResourceMtlsEnforced(
+    resourceId: number,
+    trx: DbOrTrx = db
+): Promise<boolean> {
+    const sharedPolicy = alias(resourcePolicies, "sharedPolicy");
+    const defaultPolicy = alias(resourcePolicies, "defaultPolicy");
+    const [row] = await trx
+        .select({ mtls: effectiveMtlsSql(sharedPolicy, defaultPolicy) })
+        .from(resources)
+        .leftJoin(
+            sharedPolicy,
+            eq(sharedPolicy.resourcePolicyId, resources.resourcePolicyId)
+        )
+        .leftJoin(
+            defaultPolicy,
+            eq(
+                defaultPolicy.resourcePolicyId,
+                resources.defaultResourcePolicyId
+            )
+        )
+        .where(eq(resources.resourceId, resourceId))
+        .limit(1);
+    return Boolean(row?.mtls);
 }

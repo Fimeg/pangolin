@@ -124,7 +124,7 @@ const createResourcePolicyBodySchema = z.strictObject({
         .optional()
         .default(false)
         .describe(
-            "Require clients to present a certificate signed by one of mtlsCaCertificates. Only takes effect on HTTP resources with SSL enabled."
+            "Require clients to present a certificate signed by one of mtlsCaCertificates. Only takes effect on resources with SSL enabled (not TCP/UDP)."
         ),
     mtlsCaCertificates: z
         .array(

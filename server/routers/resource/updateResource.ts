@@ -54,6 +54,7 @@ import {
     getResourceMtlsOwner,
     isMtlsEnabled
 } from "@server/lib/mtls";
+import { resourceModeSupportsMtls } from "@server/lib/mtlsModes";
 
 const updateResourceParamsSchema = z.strictObject({
     resourceId: z.coerce.number().int().positive()
@@ -539,11 +540,11 @@ async function updateHttpResource(
         updateData.mtlsEnabled ?? (await isMtlsEnabled(mtlsOwner));
 
     if (updateData.mtlsEnabled === true) {
-        if (resource.mode !== "http") {
+        if (!resourceModeSupportsMtls(resource.mode)) {
             return next(
                 createHttpError(
                     HttpCode.BAD_REQUEST,
-                    "mTLS is only supported on HTTP resources."
+                    "mTLS is not supported on TCP/UDP resources."
                 )
             );
         }

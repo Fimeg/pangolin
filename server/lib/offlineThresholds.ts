@@ -1,3 +1,5 @@
+import config from "@server/lib/config";
+
 export type OfflineThresholds = {
     // how often the offline checkers run
     checkIntervalMs: number;
@@ -19,8 +21,14 @@ export const DEFAULT_OFFLINE_THRESHOLDS: OfflineThresholds = {
     remoteExitNodeMs: 2 * 60 * 1000 // 2 minutes
 };
 
-// The thresholds are only configurable in the private config file, so the
-// open build always uses the defaults. See server/private/lib/offlineThresholds.ts
 export function getOfflineThresholds(): OfflineThresholds {
-    return DEFAULT_OFFLINE_THRESHOLDS;
+    const offlineChecker = config.getRawConfig().offline_checker;
+
+    return {
+        checkIntervalMs: offlineChecker.check_interval_ms,
+        newtMs: offlineChecker.newt_threshold_ms,
+        newtWireguardMs: offlineChecker.newt_wireguard_threshold_ms,
+        olmMs: offlineChecker.olm_threshold_ms,
+        remoteExitNodeMs: offlineChecker.remote_exit_node_threshold_ms
+    };
 }

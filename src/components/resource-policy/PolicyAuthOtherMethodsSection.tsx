@@ -27,6 +27,8 @@ export type PolicyAuthOtherMethodsSectionProps = {
     emailCount: number;
     emailEnabled: boolean;
     disabled?: boolean;
+    // false shows only mTLS, e.g. for inference resources
+    credentialMethods?: boolean;
     onConfigure: (method: PolicyAuthMethodId) => void;
     onTogglePincode: (active: boolean) => void;
     onTogglePasscode: (active: boolean) => void;
@@ -51,6 +53,7 @@ export function PolicyAuthOtherMethodsSection({
     emailCount,
     emailEnabled,
     disabled,
+    credentialMethods = true,
     onConfigure,
     onTogglePincode,
     onTogglePasscode,
@@ -74,55 +77,61 @@ export function PolicyAuthOtherMethodsSection({
             </SettingsFormCell>
             <SettingsFormCell span="full">
                 <div className="flex flex-col gap-3">
-                    <PolicyAuthMethodRow
-                        id="pincode"
-                        title={t("policyAuthPincodeTitle")}
-                        description={t("policyAuthPincodeDescription")}
-                        summary={getPincodeSummary({ t })}
-                        active={pinActive}
-                        onConfigure={() => onConfigure("pincode")}
-                        onToggle={onTogglePincode}
-                        disabled={disabled}
-                    />
+                    {credentialMethods && (
+                        <>
+                            <PolicyAuthMethodRow
+                                id="pincode"
+                                title={t("policyAuthPincodeTitle")}
+                                description={t("policyAuthPincodeDescription")}
+                                summary={getPincodeSummary({ t })}
+                                active={pinActive}
+                                onConfigure={() => onConfigure("pincode")}
+                                onToggle={onTogglePincode}
+                                disabled={disabled}
+                            />
 
-                    <PolicyAuthMethodRow
-                        id="passcode"
-                        title={t("policyAuthPasscodeTitle")}
-                        description={t("policyAuthPasscodeDescription")}
-                        summary={getPasscodeSummary({ t })}
-                        active={passcodeActive}
-                        onConfigure={() => onConfigure("passcode")}
-                        onToggle={onTogglePasscode}
-                        disabled={disabled}
-                    />
+                            <PolicyAuthMethodRow
+                                id="passcode"
+                                title={t("policyAuthPasscodeTitle")}
+                                description={t("policyAuthPasscodeDescription")}
+                                summary={getPasscodeSummary({ t })}
+                                active={passcodeActive}
+                                onConfigure={() => onConfigure("passcode")}
+                                onToggle={onTogglePasscode}
+                                disabled={disabled}
+                            />
 
-                    <PolicyAuthMethodRow
-                        id="email"
-                        title={t("policyAuthEmailTitle")}
-                        description={t("policyAuthEmailDescription")}
-                        summary={getEmailWhitelistSummary({
-                            t,
-                            count: emailCount
-                        })}
-                        active={emailWhitelistEnabled}
-                        onConfigure={() => onConfigure("email")}
-                        onToggle={onToggleEmail}
-                        disabled={disabled || !emailEnabled}
-                    />
+                            <PolicyAuthMethodRow
+                                id="email"
+                                title={t("policyAuthEmailTitle")}
+                                description={t("policyAuthEmailDescription")}
+                                summary={getEmailWhitelistSummary({
+                                    t,
+                                    count: emailCount
+                                })}
+                                active={emailWhitelistEnabled}
+                                onConfigure={() => onConfigure("email")}
+                                onToggle={onToggleEmail}
+                                disabled={disabled || !emailEnabled}
+                            />
 
-                    <PolicyAuthMethodRow
-                        id="header-auth"
-                        title={t("policyAuthHeaderAuthTitle")}
-                        description={t("policyAuthHeaderAuthDescription")}
-                        summary={getHeaderAuthSummary({
-                            t,
-                            headerName: headerAuthUser
-                        })}
-                        active={headerAuthActive}
-                        onConfigure={() => onConfigure("headerAuth")}
-                        onToggle={onToggleHeaderAuth}
-                        disabled={disabled}
-                    />
+                            <PolicyAuthMethodRow
+                                id="header-auth"
+                                title={t("policyAuthHeaderAuthTitle")}
+                                description={t(
+                                    "policyAuthHeaderAuthDescription"
+                                )}
+                                summary={getHeaderAuthSummary({
+                                    t,
+                                    headerName: headerAuthUser
+                                })}
+                                active={headerAuthActive}
+                                onConfigure={() => onConfigure("headerAuth")}
+                                onToggle={onToggleHeaderAuth}
+                                disabled={disabled}
+                            />
+                        </>
+                    )}
 
                     {mtls && (
                         <PolicyAuthMethodRow
