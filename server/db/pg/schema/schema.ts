@@ -663,6 +663,7 @@ export const users = pgTable("user", {
     idpId: integer("idpId").references(() => idp.idpId, {
         onDelete: "cascade"
     }),
+    externalUserId: varchar("externalUserId"), // user's ID in the external IdP (e.g. Azure object id)
     passwordHash: varchar("passwordHash"),
     twoFactorEnabled: boolean("twoFactorEnabled").notNull().default(false),
     twoFactorSetupRequested: boolean("twoFactorSetupRequested").default(false),

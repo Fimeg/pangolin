@@ -3,7 +3,14 @@
 // import { AzureDirectorySyncProvider } from "./azure";
 import { runIdpDirectorySync } from "./syncWorkflow";
 
-await runIdpDirectorySync();
+await runIdpDirectorySync().then((changes) => {
+    console.dir(
+        {
+            changes
+        },
+        { depth: null }
+    );
+});
 process.exit(0);
 
 // const idpId = Number(process.argv[2]);

@@ -10,18 +10,57 @@
  *
  * This file is not licensed under the AGPLv3.
  */
-import { db, idp, idpOidcConfig, idpOrg, users } from "@server/db";
+import {
+    db,
+    idp,
+    idpOidcConfig,
+    idpOrg,
+    roles,
+    userOrgs,
+    users,
+    type Role
+} from "@server/db";
 
 import { durationToMs } from "@app/lib/durationToMs";
-import { parseDirectorySyncRoleMapping } from "@app/lib/idpDirectorySyncRoleMapping";
+import {
+    parseDirectorySyncRoleMapping,
+    type DirectorySyncRoleMappingConfig
+} from "@app/lib/idpDirectorySyncRoleMapping";
 import { generateId } from "@server/auth/sessions/app";
 import { UserType } from "@server/types/UserTypes";
-import { and, eq, inArray, type InferInsertModel } from "drizzle-orm";
+import {
+    and,
+    eq,
+    inArray,
+    type InferInsertModel,
+    type InferSelectModel
+} from "drizzle-orm";
 import { AzureDirectorySyncProvider } from "./azure";
-import type { DirectoryFetchContext, DirectorySyncProvider } from "./types";
+import type {
+    DirectoryFetchContext,
+    DirectorySyncProvider,
+    DirectoryUser
+} from "./types";
 
 type InsertUser = InferInsertModel<typeof users>;
 type UpdateUser = Pick<InsertUser, "username" | "email" | "name" | "userId">;
+
+type SyncedUser<T> = {
+    user: T;
+    /** Roles the user should have in `orgId` after the sync. */
+    roleIds: number[];
+};
+
+// the planned changes for one idpOrg, computed first and
+// applied in a single transaction at the end
+export type IdpOrgSyncPlan = {
+    idpId: number;
+    orgId: string;
+    usersToCreate: SyncedUser<InsertUser>[];
+    usersToUpdate: SyncedUser<UpdateUser>[];
+    /** Users still in Pangolin but gone from the directory (or no longer matching any role); removed from the org, not deleted. */
+    userIdsToRemoveFromOrg: string[];
+};
 
 // Track if the offline checker interval is running
 let directorySyncInterval: NodeJS.Timeout | null = null;
@@ -59,7 +98,7 @@ export async function runIdpDirectorySync() {
         })
         .filter((p) => p != null);
 
-    await Promise.allSettled(fetchPromises);
+    return await Promise.allSettled(fetchPromises);
 }
 
 async function syncIdp(
@@ -89,53 +128,136 @@ async function syncIdp(
     // 1. Fetch
     const result = await provider.fetch(ctx);
 
+    /**
+     * user =>
+     *  user (has roles within) - org
+     *
+     * algorithm:
+
+        fetch users for org:
+            - if user is new to pangolin and idp:
+                - if fixed roles:
+                    -> create new user in DB
+                - if group mapping:
+                    - check that the user groups match at least one of the mapped groups:
+                        -> create new user in DB
+                - if automatic groups:
+                    - if create:
+                        -> create new user in DB
+                    - if not create:
+                        - check that group names matches:
+                            -> create new user in DB
+                
+                -> Add user to Org with the correct roles
+
+            - if user is not new to pangolin and idp:
+                - if fixed roles or automatic groups with create :
+                    - if user doesn't belongs to org:
+                        -> add user to org with the correct roles
+                    - else:
+                        -> update user roles in org
+                - if group mapping matches any role: 
+                    -> update user roles in org
+                - if automatic groups without create still matches groups:
+                    -> update user roles in org
+                - else:
+                    -> remove user from org
+            
+            - if user exists in pangolin & IDP but not in remote users:
+                -> remove user from org
+
+for each remote user:
+    roleIds = resolveRoles(user, ctx.roleMapping)   // fixed / group mapping / automatic
+                                                    // [] = user doesn't qualify for this org
+    if user is disabled: roleIds = []
+
+    pangolinUser = match by externalUserId, then username
+    if no pangolinUser:
+        if roleIds empty: skip
+        create user
+    else:
+        update profile (name, email, username)       // user-level, always safe
+
+    membership = userOrg for (pangolinUser, orgId)
+    if no membership:
+        if roleIds non-empty: add to org with roleIds, flag = true
+    else if membership.flag is true:
+        if roleIds non-empty: set roles to roleIds
+        else:                 remove from org
+    else (manual membership):
+        skip                                         // admin-owned, don't touch
+
+for each membership with flag = true whose user is not in the remote set:
+    remove from org                                  // user row stays (may be in other orgs)
+
+     
+                */
+
     const existingUsers = await db
         .select()
         .from(users)
         .where(eq(users.idpId, ctx.idpId));
 
-    const map = new Map<string, (typeof existingUsers)[number]>();
+    const existingUserOrgs = await db
+        .select()
+        .from(users)
+        .innerJoin(userOrgs, eq(userOrgs.userId, users.userId))
+        .where(and(eq(users.idpId, ctx.idpId), eq(userOrgs.orgId, ctx.orgId)));
+
+    const existingPangolinUsers = new Map<
+        string,
+        (typeof existingUsers)[number]
+    >();
     for (const u of existingUsers) {
-        map.set(u.username, u);
-    }
-
-    const usersToInsert: InsertUser[] = [];
-    const usersToUpdate: UpdateUser[] = [];
-    const deletedUserIds: string[] = [];
-
-    for (const user of result.users) {
-        const existing = map.get(user.username);
-        if (existing) {
-            usersToUpdate.push({
-                username: user.username,
-                email: user.email,
-                name: user.name,
-                userId: existing.userId
-            });
+        // rely on the external ID in the tenant if it exists, else use the username
+        if (u.externalUserId) {
+            existingPangolinUsers.set(u.externalUserId, u);
         } else {
-            const userId = generateId(15);
-            usersToInsert.push({
-                userId,
-                username: user.username,
-                email: user.email,
-                name: user.name,
-                type: UserType.OIDC,
-                idpId: ctx.idpId,
-                emailVerified: true, // OIDC users are always verified
-                dateCreated: new Date().toISOString()
-            });
+            existingPangolinUsers.set(u.username, u);
         }
     }
 
-    await db.transaction(async (trx) => {
-        await trx.insert(users).values(usersToInsert);
+    const syncPlan: IdpOrgSyncPlan = {
+        idpId: ctx.idpId,
+        orgId: ctx.orgId,
+        usersToCreate: [],
+        usersToUpdate: [],
+        userIdsToRemoveFromOrg: []
+    };
 
-        await Promise.all(
-            usersToUpdate.map((u) =>
-                trx.update(users).set(u).where(eq(users.userId, u.userId))
-            )
-        );
-    });
+    // for (const user of result.users) {
+    //     const existing = map.get(user.externalId) ?? map.get(user.username);
+    //     if (existing) {
+    //         usersToUpdate.push({
+    //             username: user.username,
+    //             email: user.email,
+    //             name: user.name,
+    //             userId: existing.userId
+    //         });
+    //     } else {
+    //         const userId = generateId(15);
+    //         usersToInsert.push({
+    //             userId,
+    //             username: user.username,
+    //             email: user.email,
+    //             name: user.name,
+    //             type: UserType.OIDC,
+    //             idpId: ctx.idpId,
+    //             emailVerified: true, // OIDC users are always verified
+    //             dateCreated: new Date().toISOString()
+    //         });
+    //     }
+    // }
+
+    // await db.transaction(async (trx) => {
+    //     await trx.insert(users).values(usersToInsert);
+
+    //     await Promise.all(
+    //         usersToUpdate.map((u) =>
+    //             trx.update(users).set(u).where(eq(users.userId, u.userId))
+    //         )
+    //     );
+    // });
 
     // ...
     // console.dir(
@@ -146,5 +268,72 @@ async function syncIdp(
     // );
     // await db.select().from(idp)
 
-    return result;
+    return syncPlan;
+}
+
+async function resolveUserRoles(
+    user: DirectoryUser,
+    roleMapping: DirectorySyncRoleMappingConfig,
+    orgId: string
+) {
+    if (!user.enabled) return [];
+
+    let matchedRoles: Role[] = [];
+
+    switch (roleMapping.mode) {
+        case "fixedRoles": {
+            if (roleMapping.fixedRoleNames.length > 0) {
+                matchedRoles = await db
+                    .select()
+                    .from(roles)
+                    .where(
+                        and(
+                            eq(roles.orgId, orgId),
+                            inArray(roles.name, roleMapping.fixedRoleNames)
+                        )
+                    );
+            }
+            break;
+        }
+        case "groupMapping": {
+            const roleNames: string[] = [];
+            const groupMapping = new Map(
+                roleMapping.groupRules.map((rule) => [
+                    rule.group,
+                    rule.roleNames
+                ])
+            );
+
+            for (const group of user.groups) {
+                let roles: string[] = [];
+                if (group.displayName) {
+                    roles =
+                        groupMapping.get(group.displayName) ??
+                        groupMapping.get(group.id) ??
+                        [];
+                } else {
+                    roles =
+                        groupMapping.get(group.displayName ?? group.id) ?? [];
+                }
+                roleNames.push(...roles);
+            }
+
+            if (roleNames.length > 0) {
+                matchedRoles = await db
+                    .select()
+                    .from(roles)
+                    .where(
+                        and(
+                            eq(roles.orgId, orgId),
+                            inArray(roles.name, roleNames)
+                        )
+                    );
+            }
+            break;
+        }
+        case "automatic":
+            break;
+    }
+
+    return matchedRoles.map((role) => role.roleId);
 }
