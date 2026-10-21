@@ -30,19 +30,21 @@ export default async function AuthPage(props: AuthPageProps) {
 
     const env = pullEnv();
     const orgLoginPagesEnabled =
+        (build === "enterprise" && env.app.identityProviderMode === "org") ||
         build === "saas" ||
-        (build === "enterprise" && env.app.identityProviderMode === "org");
+        (build === "oss" && !env.flags.disableEnterpriseFeatures);
 
     let loginPage: GetLoginPageResponse | null = null;
     try {
+        console.log("orgLoginPagesEnabled", orgLoginPagesEnabled);
         if (orgLoginPagesEnabled) {
             const res = await internal.get<AxiosResponse<GetLoginPageResponse>>(
                 `/org/${orgId}/login-page`,
                 await authCookieHeader()
             );
             if (res.status === 200) {
-                loginPage = res.data.data;
             }
+            loginPage = res.data.data;
         }
     } catch (error) {}
 
