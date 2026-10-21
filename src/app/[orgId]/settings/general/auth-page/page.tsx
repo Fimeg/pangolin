@@ -36,7 +36,6 @@ export default async function AuthPage(props: AuthPageProps) {
 
     let loginPage: GetLoginPageResponse | null = null;
     try {
-        console.log("orgLoginPagesEnabled", orgLoginPagesEnabled);
         if (orgLoginPagesEnabled) {
             const res = await internal.get<AxiosResponse<GetLoginPageResponse>>(
                 `/org/${orgId}/login-page`,
