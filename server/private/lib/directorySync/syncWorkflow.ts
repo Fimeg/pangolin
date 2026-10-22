@@ -43,12 +43,17 @@ import type {
 } from "./types";
 
 type InsertUser = InferInsertModel<typeof users>;
-type UpdateUser = Pick<InsertUser, "username" | "email" | "name" | "userId">;
+type UpdateUser = Pick<
+    InsertUser,
+    "username" | "email" | "name" | "userId" | "externalUserId"
+>;
 
 type SyncedUser<T> = {
     user: T;
+    /** What to do with the user's membership in `orgId`. */
+    membershipAction: "add" | "updateRoles" | "remove" | "unchanged";
     /** Roles the user should have in `orgId` after the sync. */
-    roleIds: number[];
+    roles: Array<{ id: number; name: string }>;
 };
 
 // the planned changes for one idpOrg, computed first and
@@ -60,6 +65,8 @@ export type IdpOrgSyncPlan = {
     usersToUpdate: SyncedUser<UpdateUser>[];
     /** Users still in Pangolin but gone from the directory (or no longer matching any role); removed from the org, not deleted. */
     userIdsToRemoveFromOrg: string[];
+    /** Directory users not provisioned because they don't match any role in the org. */
+    skippedUsers: DirectoryUser[];
 };
 
 // Track if the offline checker interval is running
@@ -85,14 +92,15 @@ export async function runIdpDirectorySync() {
     const fetchPromises = idpsToSync
         .map(({ idp, idpOidcConfig, idpOrg }) => {
             if (idpOidcConfig.variant === "azure") {
-                return syncIdp(azureSyncProvider, {
+                const ctx = {
                     idpId: idp.idpId,
                     orgId: idpOrg.orgId,
                     identifierPath: idpOidcConfig.identifierPath,
                     roleMapping: parseDirectorySyncRoleMapping(
                         idpOrg.directoryRoleMapping
                     )
-                });
+                } satisfies DirectoryFetchContext;
+                return syncIdp(azureSyncProvider, ctx);
             }
             return null;
         })
@@ -217,37 +225,100 @@ for each membership with flag = true whose user is not in the remote set:
         }
     }
 
+    const existingPangolinUserOrgs = new Map<
+        string,
+        (typeof existingUserOrgs)[number]
+    >();
+    for (const u of existingUserOrgs) {
+        existingPangolinUserOrgs.set(u.user.userId, u);
+    }
+
     const syncPlan: IdpOrgSyncPlan = {
         idpId: ctx.idpId,
         orgId: ctx.orgId,
         usersToCreate: [],
         usersToUpdate: [],
-        userIdsToRemoveFromOrg: []
+        userIdsToRemoveFromOrg: [],
+        skippedUsers: []
     };
 
-    // for (const user of result.users) {
-    //     const existing = map.get(user.externalId) ?? map.get(user.username);
-    //     if (existing) {
-    //         usersToUpdate.push({
-    //             username: user.username,
-    //             email: user.email,
-    //             name: user.name,
-    //             userId: existing.userId
-    //         });
-    //     } else {
-    //         const userId = generateId(15);
-    //         usersToInsert.push({
-    //             userId,
-    //             username: user.username,
-    //             email: user.email,
-    //             name: user.name,
-    //             type: UserType.OIDC,
-    //             idpId: ctx.idpId,
-    //             emailVerified: true, // OIDC users are always verified
-    //             dateCreated: new Date().toISOString()
-    //         });
-    //     }
-    // }
+    for (const user of result.users) {
+        const roles = await resolveUserRoles(user, ctx.roleMapping, ctx.orgId);
+
+        const pangolinUser =
+            existingPangolinUsers.get(user.externalId) ??
+            existingPangolinUsers.get(user.username);
+
+        // this is a new user
+        if (!pangolinUser) {
+            // the user doesn't match any group/role on the org
+            if (roles.length === 0) {
+                syncPlan.skippedUsers.push(user);
+                continue;
+            }
+
+            syncPlan.usersToCreate.push({
+                user: {
+                    userId: generateId(15),
+                    username: user.username,
+                    externalUserId: user.externalId,
+                    email: user.email,
+                    name: user.name,
+                    type: UserType.OIDC,
+                    idpId: ctx.idpId,
+                    emailVerified: true, // OIDC users are always verified
+                    dateCreated: new Date().toISOString()
+                },
+                roles,
+                membershipAction: "add"
+            });
+        } else {
+            const membership = existingPangolinUserOrgs.get(
+                pangolinUser.userId
+            );
+
+            let membershipAction: SyncedUser<UpdateUser>["membershipAction"] =
+                "updateRoles";
+
+            if (!membership) {
+                if (roles.length === 0) {
+                    // skip users which don't belong to the org
+                    membershipAction = "unchanged";
+                    syncPlan.skippedUsers.push(user);
+                } else {
+                    membershipAction = "add";
+                }
+            } else if (
+                membership.userOrgs.autoProvisioned ||
+                membership.userOrgs.directorySynched
+            ) {
+                if (membership.userOrgs.isOwner) {
+                    // skip owner membership
+                    syncPlan.skippedUsers.push(user);
+                    membershipAction = "unchanged";
+                } else if (roles.length === 0) {
+                    syncPlan.userIdsToRemoveFromOrg.push(pangolinUser.userId);
+                    membershipAction = "remove";
+                }
+            } else {
+                // skip manual memberships
+                syncPlan.skippedUsers.push(user);
+                membershipAction = "unchanged";
+            }
+
+            syncPlan.usersToUpdate.push({
+                user: {
+                    userId: pangolinUser.userId,
+                    username: user.username,
+                    email: user.email,
+                    name: user.name,
+                    externalUserId: user.externalId
+                },
+                roles,
+                membershipAction
+            });
+        }
+    }
 
     // await db.transaction(async (trx) => {
     //     await trx.insert(users).values(usersToInsert);
@@ -332,8 +403,42 @@ async function resolveUserRoles(
             break;
         }
         case "automatic":
+            const roleNames = user.groups
+                .map((g) => g.displayName)
+                .filter((name) => name !== undefined && name !== null);
+
+            if (roleNames.length > 0) {
+                matchedRoles = await db
+                    .select()
+                    .from(roles)
+                    .where(
+                        and(
+                            eq(roles.orgId, orgId),
+                            inArray(roles.name, roleNames)
+                        )
+                    );
+            }
+
+            if (roleMapping.createMissingRoles) {
+                const missingRoles = new Set(
+                    matchedRoles.map((r) => r.name)
+                ).difference(new Set(roleNames));
+
+                const result = await db
+                    .insert(roles)
+                    .values(
+                        [...missingRoles].map((role) => ({
+                            name: role,
+                            orgId: orgId
+                        }))
+                    )
+                    .returning();
+
+                matchedRoles.push(...result);
+            }
+
             break;
     }
 
-    return matchedRoles.map((role) => role.roleId);
+    return matchedRoles.map((role) => ({ id: role.roleId, name: role.name }));
 }
