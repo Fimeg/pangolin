@@ -48,3 +48,22 @@ test("native SQLite survives worker termination with live database handles", () 
     assert.equal(result.signal, null, result.stderr);
     assert.equal(result.status, 0, result.stderr);
 });
+
+// The ObjectWrap regression needs allocation-driven collection; explicit GC
+// alone can miss it. Keep the connection alive while statements are reclaimed.
+test("native SQLite survives allocation-driven statement collection", () => {
+    const result = spawnSync(process.execPath, ["-e", `
+        const Database = require(${addon});
+        const db = new Database(':memory:');
+        let allocations = [];
+        for (let pass = 0; pass < 100000; pass++) {
+            if (db.prepare('SELECT ? AS value').get(pass).value !== pass) process.exit(2);
+            allocations.push({ pass, padding: 'x'.repeat(1024) });
+            if (allocations.length > 1000) allocations = [];
+        }
+        db.close();
+    `], { encoding: "utf8", timeout: 30000 });
+    assert.ifError(result.error);
+    assert.equal(result.signal, null, result.stderr);
+    assert.equal(result.status, 0, result.stderr);
+});

@@ -1,4 +1,5 @@
-FROM public.ecr.aws/docker/library/node:22.23.4-slim AS base
+# FROM node:24.18.1-slim AS base
+FROM public.ecr.aws/docker/library/node:24.22.1-slim AS base
 
 WORKDIR /app
 
@@ -34,7 +35,8 @@ RUN npm prune --omit=dev && \
 # Real files should be present for saas builds, placeholders for oss builds
 RUN touch /app/GeoLite2-Country.mmdb /app/GeoLite2-ASN.mmdb
 
-FROM public.ecr.aws/docker/library/node:22.23.4-slim AS runner
+# FROM node:24.18.1-slim AS runner
+FROM public.ecr.aws/docker/library/node:24.22.1-slim AS runner
 
 WORKDIR /app
 
